@@ -1,5 +1,6 @@
+# 核心修改：降低TensorFlow版本，适配云端Python环境
 streamlit==1.40.0
-tensorflow==2.21.0
-numpy
-pillow
-scikit-learn
+tensorflow==2.16.1  # 替换2.21.0，这是适配Python 3.10+的稳定版本
+numpy==1.26.4       # 固定numpy版本，避免兼容性问题
+pillow==10.2.0      # 固定pillow版本
+scikit-learn==1.4.2 # 固定sklearn版本
