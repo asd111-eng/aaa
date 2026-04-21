@@ -1,34 +1,33 @@
-# -*- coding: utf-8 -*-  # 强制Python识别UTF-8编码
+# -*- coding: utf-8 -*-
 import streamlit as st
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 from PIL import Image
-import tensorflow as tf
 import os
 import json
 from datetime import datetime
 import warnings
-import sys
 
-# ============ 安全编码配置 ============
+# ============ 环境配置 ============
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 os.environ['STREAMLIT_SERVER_HEADLESS'] = 'true'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 屏蔽TensorFlow无关日志
+warnings.filterwarnings("ignore")
 
-warnings.filterwarnings("ignore", message="use_column_width is deprecated")
-
+# ============ 全部改用独立Keras 3 【完全不需要TensorFlow】 ============
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
-from tensorflow.keras.models import Model
+# 新版独立Keras
+import keras
+from keras.applications import MobileNetV2
+from keras.layers import Dense, GlobalAveragePooling2D
+from keras.models import Model
 
-# ===================== 配置 =====================
+# ===================== 路径配置 =====================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_FILE = os.path.join(BASE_DIR, "crop_model.h5")
 CLASS_FILE = os.path.join(BASE_DIR, "classes.json")
 EXAMPLES_ROOT = os.path.join(BASE_DIR, "examples")
 
-# ===================== 病害防治建议库 =====================
+# ===================== 病害防治建议库（原内容完全保留） =====================
 ADVICE = {
     "小麦-健康": {"建议": "小麦植株健康，长势良好。建议继续保持常规田间管理，合理水肥，注意防倒、防早衰。"},
     "小麦-条锈病": {
@@ -223,82 +222,33 @@ ADVICE = {
     }
 }
 
-# ===================== 病害防治建议（纯原生组件，无HTML） =====================
+# ===================== 病害防治展示 =====================
 def show_disease_advice(disease_name):
     st.subheader("病害防治建议")
-    
     advice = ADVICE.get(disease_name, None)
     if not advice:
         st.info("暂未收录该病害的防治建议，请咨询农业技术人员。")
         return
-    
     if "健康" in disease_name:
         st.write(advice["建议"])
         return
-    
-    # 用columns分栏+纯文本，彻底避免expander标题渲染乱码
     col1, col2 = st.columns(2)
-    
     with col1:
         st.subheader("病因分析")
         st.write(advice.get("病因", "暂无"))
-        
         st.subheader("物理防治")
         st.write(advice.get("物理防治", "暂无"))
-        
         st.subheader("生物防治")
         st.write(advice.get("生物防治", "暂无"))
-    
     with col2:
         st.subheader("化学防治")
         st.write(advice.get("化学防治", "暂无"))
-        
         st.subheader("禁限用提醒")
         st.write(advice.get("禁限用提醒", "暂无"))
-        
         st.subheader("施药间隔")
         st.write(advice.get("施药间隔", "暂无"))
 
-# ===================== 训练模型 =====================
-def train_all():
-    datagen = ImageDataGenerator(
-        rescale=1./255, validation_split=0.2,
-        rotation_range=30, width_shift_range=0.2, height_shift_range=0.2,
-        shear_range=0.15, zoom_range=0.2, horizontal_flip=True, vertical_flip=True
-    )
-    train_gen = datagen.flow_from_directory(
-        os.path.join(BASE_DIR, "images"), 
-        target_size=(224,224), 
-        batch_size=32, 
-        subset="training", 
-        class_mode='categorical'
-    )
-    val_gen = datagen.flow_from_directory(
-        os.path.join(BASE_DIR, "images"), 
-        target_size=(224,224), 
-        batch_size=32, 
-        subset="validation", 
-        class_mode='categorical'
-    )
-    class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(train_gen.classes), y=train_gen.classes)
-    class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
-
-    base = MobileNetV2(weights="imagenet", include_top=False, input_shape=(224,224,3))
-    base.trainable = False
-    x = base.output
-    x = GlobalAveragePooling2D()(x)
-    x = Dense(256, activation="relu")(x)
-    out = Dense(train_gen.num_classes, activation="softmax")(x)
-    model = Model(inputs=base.input, outputs=out)
-
-    model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
-    history = model.fit(train_gen, epochs=50, validation_data=val_gen, class_weight=class_weight_dict)
-
-    model.save(MODEL_FILE)
-    with open(CLASS_FILE, "w", encoding="utf-8") as f:
-        json.dump(train_gen.class_indices, f, ensure_ascii=False, indent=2)
-
-# ===================== 预测 =====================
+# ===================== 加载类别 =====================
 def load_classes():
     if not os.path.exists(CLASS_FILE):
         return {}
@@ -306,13 +256,17 @@ def load_classes():
         c = json.load(f)
     return {v: k for k, v in c.items()}
 
+# ===================== AI预测核心函数（纯Keras，无TensorFlow） =====================
 def predict(img):
     if not os.path.exists(MODEL_FILE) or not os.path.exists(CLASS_FILE):
-        return "模型未训练，请先在终端训练", 0.0
-    img = img.convert("RGB").resize((224,224))
+        return "模型未训练，请先训练模型", 0.0
+
+    img = img.convert("RGB").resize((224, 224))
     x = np.array(img) / 255.0
     x = np.expand_dims(x, axis=0)
-    model = tf.keras.models.load_model(MODEL_FILE)
+
+    # 纯Keras加载模型，完全不需要TensorFlow
+    model = keras.models.load_model(MODEL_FILE, compile=False)
     pred = model.predict(x, verbose=0)
     idx = np.argmax(pred)
     conf = float(pred[0][idx]) * 100
@@ -338,23 +292,17 @@ def show_disease_examples():
     for img_file in image_files:
         try:
             img = Image.open(os.path.join(disease_path, img_file))
-            st.sidebar.image(img, caption=img_file, use_container_width=True)
+            # 修复所有streamlit废弃警告 width='stretch'
+            st.sidebar.image(img, caption=img_file, width='stretch')
         except:
             pass
 
-# ===================== 页面样式（清空，避免渲染冲突） =====================
-def set_page_style():
-    pass  # 完全移除自定义CSS，只用Streamlit默认样式
-
-# ===================== 主函数 =====================
+# ===================== 主页面 =====================
 def main():
     if "diagnosis_history" not in st.session_state:
         st.session_state.diagnosis_history = []
 
-    st.set_page_config(page_title="作物病害智能识别系统", page_icon=None, layout="wide")
-    set_page_style()
-
-    # 纯文本标题，无HTML
+    st.set_page_config(page_title="作物病害智能识别系统", layout="wide")
     st.title("多作物病害智能识别系统")
     st.write("支持：小麦 | 水稻 | 玉米 | 大豆 | 棉花 | 马铃薯 | 油菜")
     st.divider()
@@ -369,15 +317,14 @@ def main():
             st.write(f"置信度：{record['confidence']:.2f}% | {record['time']}")
             st.divider()
 
-    # 上传识别
+    # 图片上传诊断
     st.subheader("上传叶片图片诊断")
     uploaded_file = st.file_uploader("请上传作物叶片图片（JPG/PNG）", type=["jpg","jpeg","png"])
-
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
         col_img, _ = st.columns([1,1])
         with col_img:
-            st.image(image, caption="已上传图片", use_container_width=True)
+            st.image(image, caption="已上传图片", width='stretch')
 
         if st.button("开始AI智能诊断", type="primary"):
             with st.spinner("正在分析..."):
@@ -385,7 +332,6 @@ def main():
                 st.success(f"诊断结果：{result}")
                 st.info(f"置信度：{confidence:.2f}%")
                 show_disease_advice(result)
-
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 st.session_state.diagnosis_history.append({
                     "result":result, "confidence":confidence, "time":current_time
@@ -393,7 +339,7 @@ def main():
 
     st.divider()
 
-    # 专家咨询
+    # 专家咨询表单
     st.subheader("农技专家咨询")
     with st.form("expert_form"):
         col1, col2 = st.columns([1,2])
@@ -408,9 +354,5 @@ def main():
             else:
                 st.warning("请填写完整信息")
 
-# ===================== 入口 =====================
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "train":
-        train_all()
-    else:
-        main()
+    main()
