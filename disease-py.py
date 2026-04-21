@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import numpy as np
-from sklearn.utils.class_weight import compute_class_weight
 from PIL import Image
 import os
 import json
@@ -13,9 +12,7 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 os.environ['STREAMLIT_SERVER_HEADLESS'] = 'true'
 warnings.filterwarnings("ignore")
 
-# ============ 全部改用独立Keras 3 【完全不需要TensorFlow】 ============
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-# 新版独立Keras
+# ============ 纯Keras 3（无TensorFlow） ============
 import keras
 from keras.applications import MobileNetV2
 from keras.layers import Dense, GlobalAveragePooling2D
@@ -27,7 +24,7 @@ MODEL_FILE = os.path.join(BASE_DIR, "crop_model.h5")
 CLASS_FILE = os.path.join(BASE_DIR, "classes.json")
 EXAMPLES_ROOT = os.path.join(BASE_DIR, "examples")
 
-# ===================== 病害防治建议库（原内容完全保留） =====================
+# ===================== 病害防治建议库 =====================
 ADVICE = {
     "小麦-健康": {"建议": "小麦植株健康，长势良好。建议继续保持常规田间管理，合理水肥，注意防倒、防早衰。"},
     "小麦-条锈病": {
@@ -256,7 +253,7 @@ def load_classes():
         c = json.load(f)
     return {v: k for k, v in c.items()}
 
-# ===================== AI预测核心函数（纯Keras，无TensorFlow） =====================
+# ===================== AI预测核心函数 =====================
 def predict(img):
     if not os.path.exists(MODEL_FILE) or not os.path.exists(CLASS_FILE):
         return "模型未训练，请先训练模型", 0.0
@@ -265,7 +262,7 @@ def predict(img):
     x = np.array(img) / 255.0
     x = np.expand_dims(x, axis=0)
 
-    # 纯Keras加载模型，完全不需要TensorFlow
+    # 纯Keras加载模型
     model = keras.models.load_model(MODEL_FILE, compile=False)
     pred = model.predict(x, verbose=0)
     idx = np.argmax(pred)
@@ -292,8 +289,7 @@ def show_disease_examples():
     for img_file in image_files:
         try:
             img = Image.open(os.path.join(disease_path, img_file))
-            # 修复所有streamlit废弃警告 width='stretch'
-            st.sidebar.image(img, caption=img_file, width='stretch')
+            st.sidebar.image(img, caption=img_file, use_column_width=True)
         except:
             pass
 
@@ -324,7 +320,7 @@ def main():
         image = Image.open(uploaded_file)
         col_img, _ = st.columns([1,1])
         with col_img:
-            st.image(image, caption="已上传图片", width='stretch')
+            st.image(image, caption="已上传图片", use_column_width=True)
 
         if st.button("开始AI智能诊断", type="primary"):
             with st.spinner("正在分析..."):
